@@ -1,54 +1,84 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import type { SearchQuery, GeminiResponse } from '../../types';
+import { GoogleGenAI, Type } from "@google/genai";
+import type { SearchQuery } from '../../types';
 
-// La función 'createPrompt' se mueve aquí, al lado del servidor,
-// ya que aquí es donde se necesita realmente.
+const schema = {
+  type: Type.OBJECT,
+  properties: {
+    partResults: {
+      type: Type.ARRAY,
+      description: 'Lista de resultados de búsqueda de refacciones en plataformas en línea.',
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          platform: { type: Type.STRING, description: 'El nombre de la plataforma de comercio electrónico.' },
+          priceMXN: { type: Type.NUMBER, description: 'Precio en Pesos Mexicanos.' },
+          sellerRating: { type: Type.NUMBER, description: 'Calificación del vendedor de 0 a 5.' },
+          deliveryTime: { type: Type.STRING, description: 'Tiempo de entrega estimado en días.' },
+          condition: { type: Type.STRING, description: '"Nuevo" o "Usado".' },
+          url: { type: Type.STRING, description: 'URL directa a la página del producto.' },
+          id: { type: Type.STRING, description: 'ID único para el resultado.' }
+        },
+        required: ['platform', 'priceMXN', 'sellerRating', 'deliveryTime', 'condition', 'url', 'id']
+      }
+    },
+    devicePrices: {
+      type: Type.OBJECT,
+      description: 'Precios estimados para el dispositivo completo.',
+      properties: {
+        new: {
+          type: Type.OBJECT,
+          properties: {
+            low: { type: Type.NUMBER, description: 'Precio bajo estimado del dispositivo nuevo.' },
+            average: { type: Type.NUMBER, description: 'Precio promedio estimado del dispositivo nuevo.' },
+            high: { type: Type.NUMBER, description: 'Precio alto estimado del dispositivo nuevo.' }
+          },
+          required: ['low', 'average', 'high']
+        },
+        used: {
+          type: Type.OBJECT,
+          properties: {
+            low: { type: Type.NUMBER, description: 'Precio bajo estimado del dispositivo usado.' },
+            average: { type: Type.NUMBER, description: 'Precio promedio estimado del dispositivo usado.' },
+            high: { type: Type.NUMBER, description: 'Precio alto estimado del dispositivo usado.' }
+          },
+          required: ['low', 'average', 'high']
+        }
+      },
+      required: ['new', 'used']
+    }
+  },
+  required: ['partResults', 'devicePrices']
+};
+
+
 const createPrompt = (query: SearchQuery): string => {
   return `
-    Actúa como un experto agregador de datos de comercio electrónico. Tu tarea es encontrar precios de refacciones y dispositivos completos en sitios web específicos.
+    Actúa como un experto agregador de datos de comercio electrónico. Tu tarea es encontrar precios para una refacción de dispositivo y también el precio del dispositivo completo en varios sitios de comercio electrónico.
 
-    Busca el siguiente artículo:
+    Busca el siguiente artículo de refacción:
     - Tipo de Dispositivo: ${query.deviceType}
     - Marca: ${query.brand}
     - Modelo: ${query.model}
     - Pieza: ${query.part}
-    - Variante 1: ${query.variant1}
-    - Variante 2: ${query.variant2}
+    - Variantes: ${query.variant1}, ${query.variant2}
 
-    Consulta los siguientes sitios web:
+    Consulta los siguientes sitios web para la refacción y para el dispositivo completo:
     1. amazon.com.mx
     2. mercadolibre.com.mx
     3. ebay.com
     4. aliexpress.com
 
-    Para cada sitio web, encuentra hasta 3 anuncios. Para cada anuncio, proporciona la siguiente información:
-    - platform: El nombre del sitio web (ej. 'Amazon MX', 'MercadoLibre').
-    - priceMXN: El precio en Pesos Mexicanos. Si está en otra moneda, conviértelo. Debe ser un número.
-    - sellerRating: La calificación del vendedor, un número entre 0 y 5.
-    - deliveryTime: El tiempo de entrega estimado en días a Ciudad de México, CP 03023.
-    - condition: "Nuevo" o "Usado".
-    - url: El enlace directo a la página del producto.
-    - id: Un ID único para este resultado (puedes usar una combinación de plataforma y precio).
+    Para los resultados de la refacción, encuentra hasta 3 listados por sitio. Para cada listado, proporciona la plataforma, el precio en MXN (convierte si es necesario), la calificación del vendedor, el tiempo de entrega estimado a Ciudad de México (CP 03023), la condición ("Nuevo" o "Usado") y la URL del producto.
 
+    Para los precios del dispositivo completo (${query.brand} ${query.model}), proporciona un rango de precios (bajo, promedio, alto) tanto para dispositivos nuevos como usados en excelentes condiciones.
 
-    Adicionalmente, busca el precio del dispositivo completo (${query.brand} ${query.model}), tanto nuevo como usado en excelentes condiciones, en los mismos sitios. Proporciona un precio bajo, promedio y alto estimado para cada condición.
-
-    Devuelve tu respuesta completa como un único objeto JSON minificado. No incluyas texto, explicaciones o formato markdown fuera del JSON. El JSON debe seguir esta estructura exacta:
-    {
-      "partResults": [
-        { "platform": "string", "priceMXN": number, "sellerRating": number, "deliveryTime": "string", "condition": "string", "url": "string", "id": "string" }
-      ],
-      "devicePrices": {
-        "new": { "low": number, "average": number, "high": number },
-        "used": { "low": number, "average": number, "high": number }
-      }
-    }
+    Basa tu respuesta únicamente en la información que puedas encontrar en los sitios web especificados. Genera un ID único para cada resultado de refacción que combine la plataforma y el precio.
     `;
 };
 
-export const handler = async (event: any) => {
+export const handler = async function(event: any) {
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+        return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
     const { API_KEY } = process.env;
@@ -57,22 +87,20 @@ export const handler = async (event: any) => {
     }
 
     try {
-        const query: SearchQuery = JSON.parse(event.body || '{}');
+        const query: SearchQuery = JSON.parse(event.body);
         const prompt = createPrompt(query);
         const ai = new GoogleGenAI({ apiKey: API_KEY });
         
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
+                responseSchema: schema,
             },
         });
 
         const jsonStr = response.text.trim();
-
-        // Validate that we got a valid JSON string before returning
-        JSON.parse(jsonStr);
 
         return {
             statusCode: 200,

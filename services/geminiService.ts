@@ -18,8 +18,7 @@ export const fetchQuotes = async (query: SearchQuery): Promise<GeminiResponse> =
         throw new Error(errorBody.error || `Request failed with status ${response.status}`);
     }
 
-    const jsonStr = await response.text();
-    const parsedData: GeminiResponse = JSON.parse(jsonStr);
+    const parsedData: GeminiResponse = await response.json();
 
     if (!parsedData.partResults || !parsedData.devicePrices) {
         throw new Error("Invalid data structure from API");

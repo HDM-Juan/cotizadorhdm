@@ -1,9 +1,10 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { toPng } from 'html-to-image';
 import { SearchQuery, PartSearchResult, HistoricalData, DevicePrices, QuoteSettings, GeminiResponse, LocalSupplierRecord } from './types';
 import { fetchQuotes } from './services/geminiService';
 import { fetchAndParseSupplierData } from './services/localSuppliersService';
-import { MOCK_QUERY, MOCK_HISTORICAL_DATA } from './constants';
+import { MOCK_QUERY, MOCK_HISTORICAL_DATA, DEVICE_TYPES, BRANDS, MODELS, PARTS, VARIANTS } from './constants';
 import AnalysisChart from './components/AnalysisChart';
 import Button from './components/ui/Button';
 import DataSourcePanel from './components/DataSourcePanel';
@@ -29,29 +30,166 @@ const Header: React.FC = () => (
     </header>
 );
 
+const QuoteTemplatePanel: React.FC<{ settings: QuoteSettings, setSettings: React.Dispatch<React.SetStateAction<QuoteSettings>> }> = ({ settings, setSettings }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value, type } = e.target;
+        const isCheckbox = type === 'checkbox';
+        const checked = (e.target as HTMLInputElement).checked;
+        
+        setSettings(prev => ({ ...prev, [name]: isCheckbox ? checked : value }));
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                setSettings(prev => ({ ...prev, headerImage: event.target?.result as string }));
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        }
+    };
+
+    return (
+        <div className="container mx-auto px-4 md:px-8 mb-4">
+            <div className="bg-white rounded-lg shadow-md border border-gray-200">
+                <button onClick={() => setIsOpen(!isOpen)} className="w-full p-3 text-left font-semibold text-gray-700 flex justify-between items-center focus:outline-none" aria-expanded={isOpen} aria-controls="template-settings">
+                    <span><i className="fas fa-edit mr-2"></i>Personalizar Plantilla de Cotización</span>
+                    <i className={`fas fa-chevron-down transition-transform ${isOpen ? 'rotate-180' : ''}`}></i>
+                </button>
+                {isOpen && (
+                    <div id="template-settings" className="p-4 border-t divide-y">
+                        {/* Section: Header */}
+                        <div className="py-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                            <h3 className="md:col-span-2 text-lg font-semibold text-gray-700">Encabezado y Marca</h3>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Nombre de la Empresa</label>
+                                <input type="text" name="brandName" value={settings.brandName} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Logo / Imagen de Encabezado</label>
+                                <input type="file" accept="image/*" onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-red file:text-white hover:file:bg-brand-red-dark"/>
+                            </div>
+                        </div>
+
+                        {/* Section: Contact Info */}
+                        <div className="py-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                             <h3 className="md:col-span-2 text-lg font-semibold text-gray-700">Información de Contacto</h3>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Teléfono</label>
+                                <input type="text" name="phoneNumber" value={settings.phoneNumber} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" />
+                                <label className="flex items-center mt-2 text-sm"><input type="checkbox" name="showPhoneNumber" checked={settings.showPhoneNumber} onChange={handleChange} className="mr-2"/>Mostrar Teléfono</label>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Correo Electrónico</label>
+                                <input type="text" name="email" value={settings.email} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" />
+                                <label className="flex items-center mt-2 text-sm"><input type="checkbox" name="showEmail" checked={settings.showEmail} onChange={handleChange} className="mr-2"/>Mostrar Correo</label>
+                            </div>
+                        </div>
+
+                        {/* Section: Terms */}
+                        <div className="py-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                            <h3 className="md:col-span-2 text-lg font-semibold text-gray-700">Términos de la Cotización</h3>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Texto de Garantía</label>
+                                <textarea name="warrantyInfo" value={settings.warrantyInfo} onChange={handleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" />
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-600">Vigencia</label>
+                                <input type="text" name="quoteValidity" value={settings.quoteValidity} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" />
+                            </div>
+                        </div>
+                        
+                        {/* Section: Attribution */}
+                        <div className="py-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                            <h3 className="md:col-span-2 text-lg font-semibold text-gray-700">Atribución y Fecha</h3>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Atendido por</label>
+                                <input type="text" name="salesperson" value={settings.salesperson} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" />
+                                <label className="flex items-center mt-2 text-sm"><input type="checkbox" name="showSalesperson" checked={settings.showSalesperson} onChange={handleChange} className="mr-2"/>Mostrar "Atendido por"</label>
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-600">Fecha Automática</label>
+                                <div className="p-2 mt-1 bg-gray-100 rounded-md text-gray-700">{new Date().toLocaleDateString('es-MX')}</div>
+                                <label className="flex items-center mt-2 text-sm"><input type="checkbox" name="showDate" checked={settings.showDate} onChange={handleChange} className="mr-2"/>Mostrar Fecha</label>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // SECTION 1: SEARCH FORM
 const QuoteForm: React.FC<{ onSearch: (query: SearchQuery) => void; isLoading: boolean; }> = ({ onSearch, isLoading }) => {
-    const [query] = useState<SearchQuery>(MOCK_QUERY);
-    const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); onSearch(query); };
+    const [formState, setFormState] = useState<SearchQuery>(MOCK_QUERY);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFormState(prevState => {
+            const newState = { ...prevState, [name]: value };
+            // If brand changes, reset model to the first available one
+            if (name === 'brand') {
+                newState.model = MODELS[value]?.[0] || '';
+            }
+            return newState;
+        });
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSearch(formState);
+    };
 
     return (
         <div className="bg-white p-6 rounded-lg shadow-md mb-8">
             <h2 className="text-xl font-bold mb-4 text-gray-700">1. Iniciar Búsqueda</h2>
             <form onSubmit={handleSubmit}>
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
-                    {Object.entries(query).map(([key, value]) => (
-                        <div key={key}>
-                            <label className="block text-sm font-medium text-gray-600 capitalize">{key.replace('variant', 'variante ')}</label>
-                            <input type="text" value={value} readOnly className="mt-1 block w-full bg-gray-100 rounded-md border-gray-300 shadow-sm p-2" />
-                        </div>
-                    ))}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
+                    <div>
+                        <label htmlFor="deviceType" className="block text-sm font-medium text-gray-600">Tipo Dispositivo</label>
+                        <select id="deviceType" name="deviceType" value={formState.deviceType} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
+                            {DEVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                    </div>
+                     <div>
+                        <label htmlFor="brand" className="block text-sm font-medium text-gray-600">Marca</label>
+                        <select id="brand" name="brand" value={formState.brand} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
+                            {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                    </div>
+                     <div>
+                        <label htmlFor="model" className="block text-sm font-medium text-gray-600">Modelo</label>
+                        <select id="model" name="model" value={formState.model} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
+                            {MODELS[formState.brand]?.map(m => <option key={m} value={m}>{m}</option>) || <option value="">Seleccione marca</option>}
+                        </select>
+                    </div>
+                     <div>
+                        <label htmlFor="part" className="block text-sm font-medium text-gray-600">Pieza</label>
+                        <select id="part" name="part" value={formState.part} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
+                            {PARTS.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="variant1" className="block text-sm font-medium text-gray-600">Variante 1</label>
+                        <select id="variant1" name="variant1" value={formState.variant1} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
+                            {VARIANTS.map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="variant2" className="block text-sm font-medium text-gray-600">Variante 2</label>
+                        <select id="variant2" name="variant2" value={formState.variant2} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
+                            {VARIANTS.map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                    </div>
                 </div>
                 <div className="flex justify-end">
                     <Button type="submit" disabled={isLoading} leftIcon={isLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-search"></i>}>
                         {isLoading ? 'Buscando...' : 'Cotizar Pieza'}
                     </Button>
                 </div>
-                <p className="text-xs text-gray-500 mt-2 text-right">Nota: El formulario está pre-llenado para demostración.</p>
             </form>
         </div>
     );
@@ -259,6 +397,7 @@ const App: React.FC = () => {
     const [showResults, setShowResults] = useState<boolean>(false);
     const [analysisData, setAnalysisData] = useState<GeminiResponse | null>(null);
     const [historicalData] = useState<HistoricalData[]>(MOCK_HISTORICAL_DATA);
+    const [query, setQuery] = useState<SearchQuery>(MOCK_QUERY);
     
     // Local Suppliers State
     const [sheetUrl, setSheetUrl] = useState<string>('');
@@ -285,16 +424,6 @@ const App: React.FC = () => {
         showSalesperson: true,
         showDate: true
     });
-
-    const [isEmbedded, setIsEmbedded] = useState<boolean>(false);
-
-    useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('embed') === 'true') {
-            document.body.style.backgroundColor = 'transparent';
-            setIsEmbedded(true);
-        }
-    }, []);
     
     const loadSupplierData = useCallback(async () => {
         if (!sheetUrl) return;
@@ -311,25 +440,20 @@ const App: React.FC = () => {
     }, [sheetUrl]);
 
     useEffect(() => {
-        // Load data on initial URL set or refresh.
-        // The App component doesn't get re-mounted when sheetUrl changes,
-        // so we need a separate trigger like the onRefresh button.
-        // This effect will run once when component loads with an initial URL.
-        if (sheetUrl) {
-            loadSupplierData();
-        }
-    }, [sheetUrl, loadSupplierData]);
+        loadSupplierData();
+    }, [loadSupplierData]);
 
-    const handleSearch = useCallback(async (query: SearchQuery) => {
+    const handleSearch = useCallback(async (searchQuery: SearchQuery) => {
         setIsLoading(true);
         setError(null);
         setShowResults(false);
+        setQuery(searchQuery);
 
         // Filter local suppliers based on the search query
         const relevantLocalRecords = allLocalSupplierRecords.filter(r =>
-            r.brand.toLowerCase() === query.brand.toLowerCase() &&
-            r.model.toLowerCase() === query.model.toLowerCase() &&
-            r.part.toLowerCase() === query.part.toLowerCase()
+            r.brand.toLowerCase() === searchQuery.brand.toLowerCase() &&
+            r.model.toLowerCase() === searchQuery.model.toLowerCase() &&
+            r.part.toLowerCase() === searchQuery.part.toLowerCase()
         );
 
         const localResultsForDisplay: PartSearchResult[] = relevantLocalRecords.map(r => ({
@@ -344,7 +468,7 @@ const App: React.FC = () => {
         setFilteredLocalSuppliers(localResultsForDisplay);
 
         try {
-            const data = await fetchQuotes(query);
+            const data = await fetchQuotes(searchQuery);
             setAnalysisData(data);
             setAllPartResults(Array.from(new Map([...data.partResults, ...localResultsForDisplay].map(item => [item.id, item])).values()));
             setShowResults(true);
@@ -356,48 +480,45 @@ const App: React.FC = () => {
     }, [allLocalSupplierRecords]);
 
     return (
-        <div className={`min-h-screen font-sans ${isEmbedded ? 'bg-transparent' : 'bg-gray-50'}`}>
-            {!isEmbedded && <Header />}
-            <div className={`${isEmbedded ? 'p-0' : 'container mx-auto px-4 md:px-8'}`}>
-                {!isEmbedded && (
-                    <DataSourcePanel 
-                        sheetUrl={sheetUrl} 
-                        setSheetUrl={setSheetUrl} 
-                        onRefresh={loadSupplierData}
-                        isLoading={localSuppliersLoading}
-                        error={localSuppliersError}
-                    />
-                )}
-                <main className={isEmbedded ? 'p-0' : ''}>
-                    <QuoteForm onSearch={handleSearch} isLoading={isLoading} />
-                    {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">{error}</div>}
+        <div className="min-h-screen bg-gray-50 font-sans">
+            <Header />
+            <DataSourcePanel 
+                sheetUrl={sheetUrl} 
+                setSheetUrl={setSheetUrl} 
+                onRefresh={loadSupplierData}
+                isLoading={localSuppliersLoading}
+                error={localSuppliersError}
+            />
+            <QuoteTemplatePanel settings={settings} setSettings={setSettings} />
+            <main className="container mx-auto p-4 md:p-8">
+                <QuoteForm onSearch={handleSearch} isLoading={isLoading} />
+                {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">{error}</div>}
 
-                    {showResults && analysisData && (
-                        <>
-                            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-xl font-bold text-gray-700">2. Análisis de Precios</h2>
-                                    <div className="flex items-center gap-4">
-                                        <label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" checked={showChart} onChange={() => setShowChart(!showChart)} className="form-checkbox h-5 w-5" /><span className="text-sm">Ver Gráfica</span></label>
-                                        <label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" checked={showTables} onChange={() => setShowTables(!showTables)} className="form-checkbox h-5 w-5" /><span className="text-sm">Ver Tablas</span></label>
-                                    </div>
+                {showResults && analysisData && (
+                    <>
+                        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold text-gray-700">2. Análisis de Precios</h2>
+                                <div className="flex items-center gap-4">
+                                    <label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" checked={showChart} onChange={() => setShowChart(!showChart)} className="form-checkbox h-5 w-5" /><span className="text-sm">Ver Gráfica</span></label>
+                                    <label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" checked={showTables} onChange={() => setShowTables(!showTables)} className="form-checkbox h-5 w-5" /><span className="text-sm">Ver Tablas</span></label>
                                 </div>
-                                {showChart && <AnalysisChart partResults={allPartResults} devicePrices={analysisData.devicePrices} historicalData={historicalData} />}
-                                {showTables && (
-                                    <div className="mt-8">
-                                        <ResultsTable title="Resultados de Búsqueda en Línea" results={analysisData.partResults} />
-                                        <ResultsTable title="Proveedores Locales" results={filteredLocalSuppliers} />
-                                    </div>
-                                )}
                             </div>
+                            {showChart && <AnalysisChart partResults={allPartResults} devicePrices={analysisData.devicePrices} historicalData={historicalData} />}
+                            {showTables && (
+                                <div className="mt-8">
+                                    <ResultsTable title="Resultados de Búsqueda en Línea" results={analysisData.partResults} />
+                                    <ResultsTable title="Proveedores Locales" results={filteredLocalSuppliers} />
+                                </div>
+                            )}
+                        </div>
 
-                            <HistorySection data={historicalData} />
-                            
-                            <CustomerQuoteGenerator allResults={allPartResults} settings={settings} query={MOCK_QUERY} />
-                        </>
-                    )}
-                </main>
-            </div>
+                        <HistorySection data={historicalData} />
+                        
+                        <CustomerQuoteGenerator allResults={allPartResults} settings={settings} query={query} />
+                    </>
+                )}
+            </main>
         </div>
     );
 };
