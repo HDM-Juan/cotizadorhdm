@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { SearchQuery } from '../../types';
+import type { SearchQuery } from '../../src/types';
 
 const schema = {
   type: Type.OBJECT,
