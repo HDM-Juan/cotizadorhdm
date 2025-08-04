@@ -8,14 +8,34 @@ interface DataSourcePanelProps {
   onRefresh: () => void;
   isLoading: boolean;
   error: string | null;
+  inventoryUrls?: {
+    deviceUrl: string;
+    partsUrl: string;
+  };
+  onInventoryUrlsChange?: (urls: { deviceUrl: string; partsUrl: string }) => void;
 }
 
-const DataSourcePanel: React.FC<DataSourcePanelProps> = ({ sheetUrl, setSheetUrl, onRefresh, isLoading, error }) => {
+const DataSourcePanel: React.FC<DataSourcePanelProps> = ({ 
+  sheetUrl, 
+  setSheetUrl, 
+  onRefresh, 
+  isLoading, 
+  error,
+  inventoryUrls = { deviceUrl: '', partsUrl: '' },
+  onInventoryUrlsChange
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [localUrl, setLocalUrl] = useState(sheetUrl);
+  const [localInventoryUrls, setLocalInventoryUrls] = useState(inventoryUrls);
 
   const handleSave = () => {
     setSheetUrl(localUrl);
+  };
+
+  const handleInventorySave = () => {
+    if (onInventoryUrlsChange) {
+      onInventoryUrlsChange(localInventoryUrls);
+    }
   };
   
   return (
@@ -37,7 +57,8 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({ sheetUrl, setSheetUrl
                 </ol>
             </div>
             
-            <div>
+            <div className="mb-6">
+              <h4 className="text-md font-semibold text-gray-700 mb-3">📦 Proveedores Locales</h4>
               <label className="block text-sm font-medium text-gray-600 mb-1">URL de Google Sheet (.csv)</label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input 
@@ -56,6 +77,49 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({ sheetUrl, setSheetUrl
               </div>
               {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
             </div>
+
+            {onInventoryUrlsChange && (
+              <div className="border-t pt-4">
+                <h4 className="text-md font-semibold text-gray-700 mb-3">🔧 Configuración de Inventario</h4>
+                <div className="prose prose-sm max-w-none mb-4 text-gray-600">
+                  <p>Configura las URLs de tus hojas de Google Sheets para cargar dinámicamente los dispositivos y piezas disponibles.</p>
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">
+                      URL de Hoja "DispMarModelo_2024" (.csv)
+                    </label>
+                    <input 
+                      type="url" 
+                      value={localInventoryUrls.deviceUrl}
+                      onChange={(e) => setLocalInventoryUrls(prev => ({ ...prev, deviceUrl: e.target.value }))}
+                      placeholder="URL de la hoja de dispositivos y modelos..." 
+                      className="block w-full rounded-md border-gray-300 shadow-sm p-2" 
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">
+                      URL de Hoja "Piezas" (.csv)
+                    </label>
+                    <input 
+                      type="url" 
+                      value={localInventoryUrls.partsUrl}
+                      onChange={(e) => setLocalInventoryUrls(prev => ({ ...prev, partsUrl: e.target.value }))}
+                      placeholder="URL de la hoja de piezas..." 
+                      className="block w-full rounded-md border-gray-300 shadow-sm p-2" 
+                    />
+                  </div>
+                  
+                  <div className="flex justify-end">
+                    <Button onClick={handleInventorySave} variant="primary">
+                      <i className="fas fa-save mr-2"></i>Actualizar Inventario
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

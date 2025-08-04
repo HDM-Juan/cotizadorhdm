@@ -4,6 +4,7 @@ import { toPng } from 'html-to-image';
 import { SearchQuery, PartSearchResult, HistoricalData, DevicePrices, QuoteSettings, GeminiResponse, LocalSupplierRecord } from './types';
 import { fetchQuotes } from './services/geminiService';
 import { fetchAndParseSupplierData } from './services/localSuppliersService';
+import { fetchDevicesFromSheet, fetchPartsFromSheet, configureGoogleSheetURLs } from './services/inventoryService';
 import { MOCK_QUERY, MOCK_HISTORICAL_DATA, DEVICE_TYPES, BRANDS, MODELS, PARTS, VARIANTS } from './constants';
 import AnalysisChart from './components/AnalysisChart';
 import Button from './components/ui/Button';
@@ -123,7 +124,14 @@ const QuoteTemplatePanel: React.FC<{ settings: QuoteSettings, setSettings: React
 };
 
 // SECTION 1: SEARCH FORM
-const QuoteForm: React.FC<{ onSearch: (query: SearchQuery) => void; isLoading: boolean; }> = ({ onSearch, isLoading }) => {
+const QuoteForm: React.FC<{ 
+    onSearch: (query: SearchQuery) => void; 
+    isLoading: boolean;
+    deviceTypes: string[];
+    brands: string[];
+    models: { [key: string]: { id: string; label: string; model: string }[] };
+    parts: string[];
+}> = ({ onSearch, isLoading, deviceTypes, brands, models, parts }) => {
     const [formState, setFormState] = useState<SearchQuery>(MOCK_QUERY);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -132,7 +140,7 @@ const QuoteForm: React.FC<{ onSearch: (query: SearchQuery) => void; isLoading: b
             const newState = { ...prevState, [name]: value };
             // If brand changes, reset model to the first available one
             if (name === 'brand') {
-                newState.model = MODELS[value]?.[0] || '';
+                newState.model = models[value]?.[0]?.label || '';
             }
             return newState;
         });
@@ -151,25 +159,25 @@ const QuoteForm: React.FC<{ onSearch: (query: SearchQuery) => void; isLoading: b
                     <div>
                         <label htmlFor="deviceType" className="block text-sm font-medium text-gray-600">Tipo Dispositivo</label>
                         <select id="deviceType" name="deviceType" value={formState.deviceType} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
-                            {DEVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            {deviceTypes.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
                      <div>
                         <label htmlFor="brand" className="block text-sm font-medium text-gray-600">Marca</label>
                         <select id="brand" name="brand" value={formState.brand} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
-                            {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
+                            {brands.map(b => <option key={b} value={b}>{b}</option>)}
                         </select>
                     </div>
                      <div>
                         <label htmlFor="model" className="block text-sm font-medium text-gray-600">Modelo</label>
                         <select id="model" name="model" value={formState.model} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
-                            {MODELS[formState.brand]?.map(m => <option key={m} value={m}>{m}</option>) || <option value="">Seleccione marca</option>}
+                            {models[formState.brand]?.map(m => <option key={m.id} value={m.label}>{m.label}</option>) || <option value="">Seleccione marca</option>}
                         </select>
                     </div>
                      <div>
                         <label htmlFor="part" className="block text-sm font-medium text-gray-600">Pieza</label>
                         <select id="part" name="part" value={formState.part} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 focus:border-indigo-500 focus:ring-indigo-500">
-                            {PARTS.map(p => <option key={p} value={p}>{p}</option>)}
+                            {parts.map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                     </div>
                     <div>
@@ -399,6 +407,16 @@ const App: React.FC = () => {
     const [historicalData] = useState<HistoricalData[]>(MOCK_HISTORICAL_DATA);
     const [query, setQuery] = useState<SearchQuery>(MOCK_QUERY);
     
+    // Dynamic inventory data state
+    const [dynamicDeviceTypes, setDynamicDeviceTypes] = useState<string[]>(DEVICE_TYPES);
+    const [dynamicBrands, setDynamicBrands] = useState<string[]>(BRANDS);
+    const [dynamicModels, setDynamicModels] = useState<{ [key: string]: { id: string; label: string; model: string }[] }>(MODELS);
+    const [dynamicParts, setDynamicParts] = useState<string[]>(PARTS);
+    const [dynamicPartDetails, setDynamicPartDetails] = useState<{ [key: string]: { names: string[]; type: string } }>({});
+    
+    // Inventory URLs state
+    const [inventoryUrls, setInventoryUrls] = useState({ deviceUrl: '', partsUrl: '' });
+    
     // Local Suppliers State
     const [sheetUrl, setSheetUrl] = useState<string>('');
     const [localSuppliersLoading, setLocalSuppliersLoading] = useState<boolean>(false);
@@ -424,6 +442,53 @@ const App: React.FC = () => {
         showSalesperson: true,
         showDate: true
     });
+    
+    // Load dynamic inventory data on component mount
+    useEffect(() => {
+        const loadInventoryData = async () => {
+            try {
+                const [devicesData, partsData] = await Promise.all([
+                    fetchDevicesFromSheet(),
+                    fetchPartsFromSheet()
+                ]);
+                
+                setDynamicDeviceTypes(devicesData.deviceTypes);
+                setDynamicBrands(devicesData.brands);
+                setDynamicModels(devicesData.models);
+                setDynamicParts(partsData.parts);
+                setDynamicPartDetails(partsData.partDetails);
+            } catch (error) {
+                console.error('Error loading inventory data:', error);
+                // Keep default values if loading fails
+            }
+        };
+        
+        loadInventoryData();
+    }, []);
+    
+    // Handle inventory URLs update
+    const handleInventoryUrlsChange = useCallback(async (urls: { deviceUrl: string; partsUrl: string }) => {
+        setInventoryUrls(urls);
+        
+        // Configure the URLs in the service
+        configureGoogleSheetURLs(urls.deviceUrl, urls.partsUrl);
+        
+        // Reload data with new URLs
+        try {
+            const [devicesData, partsData] = await Promise.all([
+                fetchDevicesFromSheet(),
+                fetchPartsFromSheet()
+            ]);
+            
+            setDynamicDeviceTypes(devicesData.deviceTypes);
+            setDynamicBrands(devicesData.brands);
+            setDynamicModels(devicesData.models);
+            setDynamicParts(partsData.parts);
+            setDynamicPartDetails(partsData.partDetails);
+        } catch (error) {
+            console.error('Error reloading inventory data:', error);
+        }
+    }, []);
     
     const loadSupplierData = useCallback(async () => {
         if (!sheetUrl) return;
@@ -488,10 +553,19 @@ const App: React.FC = () => {
                 onRefresh={loadSupplierData}
                 isLoading={localSuppliersLoading}
                 error={localSuppliersError}
+                inventoryUrls={inventoryUrls}
+                onInventoryUrlsChange={handleInventoryUrlsChange}
             />
             <QuoteTemplatePanel settings={settings} setSettings={setSettings} />
             <main className="container mx-auto p-4 md:p-8">
-                <QuoteForm onSearch={handleSearch} isLoading={isLoading} />
+                <QuoteForm 
+                    onSearch={handleSearch} 
+                    isLoading={isLoading}
+                    deviceTypes={dynamicDeviceTypes}
+                    brands={dynamicBrands}
+                    models={dynamicModels}
+                    parts={dynamicParts}
+                />
                 {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">{error}</div>}
 
                 {showResults && analysisData && (

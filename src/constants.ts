@@ -1,17 +1,44 @@
 
 import { SearchQuery, GeminiResponse, HistoricalData } from './types';
 
+// Datos por defecto - serán reemplazados por datos de Google Sheets cuando estén disponibles
 export const DEVICE_TYPES = ['Celular', 'Tablet', 'Smartwatch'];
 export const BRANDS = ['Samsung', 'Apple', 'Xiaomi', 'Motorola', 'Huawei'];
-export const MODELS: { [key: string]: string[] } = {
-  'Samsung': ['Galaxy S23', 'Galaxy A54', 'Galaxy Z Fold 5'],
-  'Apple': ['iPhone 15', 'iPhone 14 Pro', 'iPhone SE'],
-  'Xiaomi': ['Redmi Note 12', 'Poco F5', 'Xiaomi 13T'],
-  'Motorola': ['Moto G84', 'Edge 40', 'Razr 40 Ultra'],
-  'Huawei': ['P60 Pro', 'Nova 11', 'Mate X3'],
+export const MODELS: { [key: string]: { id: string; label: string; model: string }[] } = {
+  'Samsung': [
+    { id: 'sam_s23', label: 'Galaxy S23', model: 'S23' },
+    { id: 'sam_a54', label: 'Galaxy A54', model: 'A54' },
+    { id: 'sam_zf5', label: 'Galaxy Z Fold 5', model: 'Z Fold 5' }
+  ],
+  'Apple': [
+    { id: 'app_i15', label: 'iPhone 15', model: 'iPhone 15' },
+    { id: 'app_i14p', label: 'iPhone 14 Pro', model: 'iPhone 14 Pro' },
+    { id: 'app_ise', label: 'iPhone SE', model: 'iPhone SE' }
+  ],
+  'Xiaomi': [
+    { id: 'xia_rn12', label: 'Redmi Note 12', model: 'Note 12' },
+    { id: 'xia_pf5', label: 'Poco F5', model: 'F5' },
+    { id: 'xia_x13t', label: 'Xiaomi 13T', model: '13T' }
+  ],
+  'Motorola': [
+    { id: 'mot_g84', label: 'Moto G84', model: 'G84' },
+    { id: 'mot_e40', label: 'Edge 40', model: 'Edge 40' },
+    { id: 'mot_r40u', label: 'Razr 40 Ultra', model: 'Razr 40 Ultra' }
+  ],
+  'Huawei': [
+    { id: 'hua_p60p', label: 'P60 Pro', model: 'P60 Pro' },
+    { id: 'hua_n11', label: 'Nova 11', model: 'Nova 11' },
+    { id: 'hua_mx3', label: 'Mate X3', model: 'Mate X3' }
+  ]
 };
 export const PARTS = ['Display', 'Batería', 'Cámara Trasera', 'Puerto de Carga'];
 export const VARIANTS = ['OLED', 'LCD', 'Original', 'Compatible', 'Grado A'];
+
+// URLs de Google Sheets - configurar con tus URLs publicadas como CSV
+export const GOOGLE_SHEETS_CONFIG = {
+  DEVICE_SHEET_URL: '', // URL de DispMarModelo_2024 publicada como CSV
+  PARTS_SHEET_URL: '',  // URL de Piezas publicada como CSV
+};
 
 export const MOCK_QUERY: SearchQuery = {
     deviceType: 'Celular',
