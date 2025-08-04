@@ -91,14 +91,33 @@ export async function testGoogleSheetURLs(deviceUrl: string, partsUrl: string): 
 // Función para parsear CSV con mejor manejo de errores
 function parseCSV(csvText: string): any[] {
   try {
-    const lines = csvText.trim().split('\n');
+    // PASO 1: Limpiar el CSV de caracteres problemáticos
+    let cleanedCSV = csvText
+      .replace(/\r\n/g, '\n')  // Normalizar saltos de línea
+      .replace(/\r/g, '\n')    // Convertir \r sueltos a \n
+      .replace(/\n+/g, '\n')   // Eliminar líneas vacías múltiples
+      .trim();
+    
+    console.log('📋 CSV limpiado, longitud original:', csvText.length, 'limpiado:', cleanedCSV.length);
+    
+    const lines = cleanedCSV.split('\n');
     if (lines.length < 2) {
-      console.warn('CSV vacío o sin datos');
+      console.warn('CSV vacío o sin datos después de limpieza');
       return [];
     }
     
-    // Manejo más robusto de CSV con comillas y comas dentro de valores
-    const parseCSVLine = (line: string): string[] => {
+    console.log(`📊 Total de líneas después de limpieza: ${lines.length}`);
+    
+    // PASO 2: Parsing más robusto que maneja comillas mal cerradas
+    const parseCSVLine = (line: string, lineNumber: number): string[] => {
+      // Detectar líneas problemáticas que parecen continuaciones
+      if (line.startsWith('Available as ') || 
+          line.startsWith('For ') || 
+          line.startsWith('Acer ') && !line.includes(',')) {
+        console.warn(`🚨 Línea ${lineNumber} parece ser continuación de línea anterior:`, line.substring(0, 50));
+        return []; // Devolver array vacío para ignorar esta línea
+      }
+      
       const result = [];
       let current = '';
       let inQuotes = false;
@@ -112,7 +131,7 @@ function parseCSV(csvText: string): any[] {
           // Manejar comillas dobles escapadas ""
           if (inQuotes && nextChar === '"') {
             current += '"';
-            i += 2; // Saltar ambas comillas
+            i += 2;
             continue;
           }
           // Alternar estado de comillas
@@ -130,45 +149,65 @@ function parseCSV(csvText: string): any[] {
       // Agregar el último valor
       result.push(current.trim());
       
-      // Log para debugging del parsing
-      if (result.length > 50) { // Solo log si hay muchas columnas (probable problema)
-        console.warn('📊 Línea con muchas columnas detectada:', {
-          total_columns: result.length,
-          first_10: result.slice(0, 10),
-          line_preview: line.substring(0, 200) + '...'
-        });
+      // Validar que la línea tenga un número razonable de columnas
+      if (result.length < 10) {
+        console.warn(`⚠️ Línea ${lineNumber} tiene muy pocas columnas (${result.length}):`, result);
+        return []; // Ignorar líneas con muy pocas columnas
       }
       
       return result;
     };
     
-    const headers = parseCSVLine(lines[0]).map(h => h.replace(/"/g, ''));
-    console.log('Headers encontrados:', headers);
+    // PASO 3: Procesar headers
+    const headers = parseCSVLine(lines[0], 1).map(h => h.replace(/"/g, ''));
+    console.log('📋 Headers encontrados:', headers.length, 'columnas');
+    console.log('📋 Primeros headers:', headers.slice(0, 10));
     
-    const data = lines.slice(1).map((line, lineIndex) => {
-      const values = parseCSVLine(line).map(v => v.replace(/"/g, ''));
-      const obj: any = {};
+    if (headers.length === 0) {
+      console.error('❌ No se pudieron extraer headers válidos');
+      return [];
+    }
+    
+    // PASO 4: Procesar datos línea por línea, saltando líneas problemáticas
+    const data = [];
+    let validLines = 0;
+    let skippedLines = 0;
+    
+    for (let lineIndex = 1; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex];
+      const values = parseCSVLine(line, lineIndex + 1).map(v => v.replace(/"/g, ''));
       
-      // VALIDACIÓN CRÍTICA: Verificar que el número de valores coincida con headers
+      // Saltar líneas vacías o inválidas
+      if (values.length === 0) {
+        skippedLines++;
+        continue;
+      }
+      
+      // Intentar ajustar desalineamientos menores
       if (values.length !== headers.length) {
-        console.warn(`⚠️ DESALINEAMIENTO en línea ${lineIndex + 2}:`, {
-          expected_columns: headers.length,
-          actual_values: values.length,
-          headers: headers,
-          values: values,
-          line_content: line.substring(0, 100) + '...'
-        });
+        const diff = Math.abs(values.length - headers.length);
         
-        // Rellenar valores faltantes con cadenas vacías
-        while (values.length < headers.length) {
-          values.push('');
-        }
-        // Truncar valores extras
-        if (values.length > headers.length) {
-          values.splice(headers.length);
+        // Solo intentar corregir desalineamientos menores (hasta 8 columnas de diferencia)
+        if (diff <= 8) {
+          console.warn(`🔧 Ajustando línea ${lineIndex + 1}: esperadas ${headers.length}, encontradas ${values.length}`);
+          
+          // Rellenar valores faltantes
+          while (values.length < headers.length) {
+            values.push('');
+          }
+          // Truncar valores extras
+          if (values.length > headers.length) {
+            values.splice(headers.length);
+          }
+        } else {
+          console.warn(`❌ Saltando línea ${lineIndex + 1} por desalineamiento severo: esperadas ${headers.length}, encontradas ${values.length}`);
+          skippedLines++;
+          continue;
         }
       }
       
+      // Crear objeto mapeado
+      const obj: any = {};
       headers.forEach((header, index) => {
         let value: any = values[index] || '';
         
@@ -181,33 +220,31 @@ function parseCSV(csvText: string): any[] {
         obj[header] = value;
       });
       
-      // Log detallado de los primeros 5 registros para debugging
-      if (lineIndex < 5) {
-        console.log(`✅ Registro ${lineIndex + 1} VALIDADO:`, {
-          headers_count: headers.length,
-          values_count: values.length,
+      // Log detallado solo para las primeras líneas válidas
+      if (validLines < 3) {
+        console.log(`✅ Línea válida ${validLines + 1}:`, {
+          line_number: lineIndex + 1,
           mapping_sample: {
             Dispositivo: `"${obj.Dispositivo}"`,
             Marca: `"${obj.Marca}"`,
             Etiqueta: `"${obj.Etiqueta}"`,
             Modelo_Activo: `"${obj.Modelo_Activo}"`
-          },
-          all_mapped_keys: Object.keys(obj).slice(0, 10)
+          }
         });
       }
       
-      return obj;
-    });
+      data.push(obj);
+      validLines++;
+    }
     
-    console.log(`Parseados ${data.length} registros del CSV`);
-    console.log('Headers del CSV:', headers);
-    console.log('TOTAL HEADERS:', headers.length);
-    console.log('PRIMEROS 10 HEADERS:', headers.slice(0, 10));
-    console.log('HEADERS COMPLETOS:', headers);
-    console.log('Muestra de datos mapeados:', data.slice(0, 3));
+    console.log(`✅ Procesamiento CSV completado:`);
+    console.log(`   - Líneas válidas procesadas: ${validLines}`);
+    console.log(`   - Líneas saltadas: ${skippedLines}`);
+    console.log(`   - Total headers: ${headers.length}`);
+    
     return data;
   } catch (error) {
-    console.error('Error al parsear CSV:', error);
+    console.error('❌ Error crítico al parsear CSV:', error);
     return [];
   }
 }
@@ -238,11 +275,10 @@ export async function fetchDevicesFromSheet(): Promise<{
     console.log('CSV recibido, primeras 200 caracteres:', csvText.substring(0, 200));
     
     const devices: GoogleSheetDevice[] = parseCSV(csvText);
-    console.log('Dispositivos parseados:', devices.length);
-    console.log('Muestra de datos parseados:', devices.slice(0, 3));
+    console.log(`📊 Dispositivos parseados exitosamente: ${devices.length} registros`);
     
     if (devices.length === 0) {
-      console.warn('No se encontraron dispositivos, usando datos por defecto');
+      console.warn('❌ No se encontraron dispositivos después del parsing, usando datos por defecto');
       return getDefaultDeviceData();
     }
     
@@ -272,58 +308,31 @@ export async function fetchDevicesFromSheet(): Promise<{
     }
     
     // VALIDACIÓN CRÍTICA: Verificar que los datos están en las columnas correctas
-    console.log('🔍 VALIDANDO MAPEO DE COLUMNAS en los primeros 5 registros:');
-    devices.slice(0, 5).forEach((device, index) => {
-      console.log(`📝 Dispositivo ${index + 1}:`, {
-        'Columna_Dispositivo': `"${device.Dispositivo}" (tipo: ${typeof device.Dispositivo})`,
-        'Columna_Marca': `"${device.Marca}" (tipo: ${typeof device.Marca})`,
-        'Columna_Etiqueta': `"${device.Etiqueta}" (tipo: ${typeof device.Etiqueta})`,
-        'Columna_Modelo_Activo': `"${device.Modelo_Activo}" (tipo: ${typeof device.Modelo_Activo})`,
-        'ID_Modelo': `"${device.ID_Modelo}"`,
-        'Verificación': {
-          dispositivo_valido: typeof device.Dispositivo === 'string' && device.Dispositivo.length > 0,
-          marca_valida: typeof device.Marca === 'string' && device.Marca.length > 0,
-          etiqueta_valida: typeof device.Etiqueta === 'string' && device.Etiqueta.length > 0
-        }
-      });
+    console.log('🔍 Validando mapeo de columnas...');
+    const sampleDevice = devices[0];
+    console.log(`📝 Muestra de mapeo:`, {
+      'Dispositivo': `"${sampleDevice.Dispositivo}"`,
+      'Marca': `"${sampleDevice.Marca}"`,
+      'Etiqueta': `"${sampleDevice.Etiqueta}"`,
+      'Modelo_Activo': `"${sampleDevice.Modelo_Activo}"`,
     });
     
     console.log('✅ Todas las columnas requeridas están presentes:', requiredColumns);
     
-    // Filtrar EXACTAMENTE como especificaste:
-    // - Modelo_Activo NO debe ser false (puede ser true, "true", o cualquier valor que no sea false)
+    // Filtrar dispositivos activos
     const activeDevices = devices.filter((d, index) => {
       const modeloActivo = String(d.Modelo_Activo).toLowerCase();
       const isActive = modeloActivo !== 'false' && d.Modelo_Activo !== false;
       
-      // Log detallado para los primeros 10 registros
-      if (index < 10) {
-        console.log(`Dispositivo ${index + 1}:`, {
-          Dispositivo: `"${d.Dispositivo}"`,
-          Marca: `"${d.Marca}"`,           // Columna correcta para Marca
-          Marca_Modelo: `"${d.Marca_Modelo}"`,
-          Modelo: `"${d.Modelo}"`,
-          Etiqueta: `"${d.Etiqueta}"`,    // Columna correcta para display del Modelo
-          ID_Modelo: `"${d.ID_Modelo}"`,
-          Modelo_Activo: `"${d.Modelo_Activo}"`,
-          'Marca Activa': `"${d['Marca Activa']}"`,
-          isActive: isActive,
-          all_properties: Object.keys(d).slice(0, 10)
-        });
+      // Log solo para los primeros 3 registros para verificar
+      if (index < 3) {
+        console.log(`📋 Dispositivo ${index + 1}: ${d.Marca} - ${d.Etiqueta} (Activo: ${isActive})`);
       }
       
-      if (!isActive) {
-        console.log('❌ Dispositivo filtrado (inactivo):', { 
-          Marca: d.Marca,           // Mostrar la columna correcta
-          Etiqueta: d.Etiqueta,     // Mostrar la columna correcta
-          Modelo_Activo: d.Modelo_Activo 
-        });
-      }
       return isActive;
     });
     
-    console.log('Dispositivos activos después del filtro:', activeDevices.length);
-    console.log('Muestra de dispositivos activos:', activeDevices.slice(0, 3));
+    console.log(`✅ Dispositivos activos: ${activeDevices.length} de ${devices.length} total`);
     
     // Extraer tipos de dispositivos únicos de la columna "Dispositivo"
     const deviceTypes = [...new Set(activeDevices
