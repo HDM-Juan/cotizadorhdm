@@ -9,13 +9,6 @@
   # Versión de Node.js a usar
   NODE_VERSION = "18"
 
-[functions]
-  # Directorio donde se encuentran las funciones de Netlify
-  directory = "netlify/functions"
-  
-  # Configuración de runtime para las funciones
-  node_bundler = "esbuild"
-
 # Configuración de redirects y rewrites
 [[redirects]]
   # Redirigir todas las rutas no encontradas al index.html para SPA
@@ -23,95 +16,10 @@
   to = "/index.html"
   status = 200
 
-# Headers de seguridad y CORS
+# Headers básicos de seguridad
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://generativelanguage.googleapis.com"
-
-[[headers]]
-  for = "/.netlify/functions/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-
-# Configuración específica para la función gemini-proxy
-[[headers]]
-  for = "/.netlify/functions/gemini-proxy"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Headers = "Content-Type"
-    Access-Control-Allow-Methods = "POST, OPTIONS"
-
-# Variables de entorno (las sensibles deben configurarse en el dashboard de Netlify)
-[build.processing]
-  skip_processing = false
-
-[build.processing.css]
-  bundle = true
-  minify = true
-
-[build.processing.js]
-  bundle = true
-  minify = true
-
-[build.processing.html]
-  pretty_urls = true
-
-# Configuración para desarrollo local
-[dev]
-  command = "npm run dev"
-  port = 3000
-  publish = "dist"
-  functions = "netlify/functions"
-
-# Plugin para optimización de imágenes (opcional)
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
-
-# Configuración para manejo de errores
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
-# Configuración para archivos estáticos
-[[headers]]
-  for = "*.js"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "*.css"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "*.png"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "*.jpg"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "*.jpeg"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "*.gif"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "*.svg"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
