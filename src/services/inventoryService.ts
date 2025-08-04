@@ -6,14 +6,14 @@ interface GoogleSheetDevice {
   Modelo: string;
   Etiqueta: string;
   ID_Modelo: string;
-  Modelo_Activo: boolean;
+  Modelo_Activo: boolean | string;  // Puede venir como string del CSV
 }
 
 interface GoogleSheetPart {
   Pieza: string;
   Tipo: string; // 'Interior' | 'Exterior' | 'Equipo'
   'Otros Nombres': string;
-  Activo: boolean;
+  Activo: boolean | string;  // Puede venir como string del CSV
 }
 
 // URLs de las hojas publicadas como CSV (se configuran dinámicamente)
@@ -170,38 +170,65 @@ export async function fetchDevicesFromSheet(): Promise<{
     
     const devices: GoogleSheetDevice[] = parseCSV(csvText);
     console.log('Dispositivos parseados:', devices.length);
+    console.log('Muestra de datos parseados:', devices.slice(0, 3));
     
     if (devices.length === 0) {
       console.warn('No se encontraron dispositivos, usando datos por defecto');
       return getDefaultDeviceData();
     }
     
-    // Filtrar solo dispositivos activos
-    const activeDevices = devices.filter(d => d.Modelo_Activo !== false);
-    console.log('Dispositivos activos:', activeDevices.length);
+    // Filtrar EXACTAMENTE como especificaste:
+    // - Modelo_Activo NO debe ser false (puede ser true, "true", o cualquier valor que no sea false)
+    const activeDevices = devices.filter(d => {
+      const modeloActivo = String(d.Modelo_Activo).toLowerCase();
+      const isActive = modeloActivo !== 'false' && d.Modelo_Activo !== false;
+      if (!isActive) {
+        console.log('Dispositivo filtrado (inactivo):', { 
+          Marca: d.Marca, 
+          Modelo: d.Modelo, 
+          Etiqueta: d.Etiqueta, 
+          Modelo_Activo: d.Modelo_Activo 
+        });
+      }
+      return isActive;
+    });
     
-    // Extraer tipos de dispositivos únicos
-    const deviceTypes = [...new Set(activeDevices.map(d => d.Dispositivo))].sort();
+    console.log('Dispositivos activos después del filtro:', activeDevices.length);
+    console.log('Muestra de dispositivos activos:', activeDevices.slice(0, 3));
+    
+    // Extraer tipos de dispositivos únicos de la columna "Dispositivo"
+    const deviceTypes = [...new Set(activeDevices
+      .map(d => d.Dispositivo)
+      .filter(d => d && d.trim())  // Filtrar valores vacíos
+    )].sort();
     console.log('Tipos de dispositivos encontrados:', deviceTypes);
     
-    // Extraer marcas únicas
-    const brands = [...new Set(activeDevices.map(d => d.Marca))].sort();
+    // Extraer marcas únicas de la columna "Marca"
+    const brands = [...new Set(activeDevices
+      .map(d => d.Marca)
+      .filter(m => m && m.trim())  // Filtrar valores vacíos
+    )].sort();
     console.log('Marcas encontradas:', brands);
     
-    // Organizar modelos por marca
+    // Organizar modelos por marca usando la columna "Etiqueta" para el display
     const models: { [key: string]: { id: string; label: string; model: string }[] } = {};
     brands.forEach(brand => {
       models[brand] = activeDevices
         .filter(d => d.Marca === brand)
+        .filter(d => d.Etiqueta && d.Etiqueta.trim()) // Asegurar que Etiqueta no esté vacía
         .map(d => ({
-          id: d.ID_Modelo,
-          label: d.Etiqueta,
-          model: d.Modelo
+          id: d.ID_Modelo || `${d.Marca}_${d.Modelo}`, // Fallback si ID_Modelo está vacío
+          label: d.Etiqueta,  // USAR ETIQUETA como especificaste
+          model: d.Modelo     // Mantener Modelo para referencia
         }))
         .sort((a, b) => a.label.localeCompare(b.label));
     });
     
     console.log('Modelos organizados por marca:', Object.keys(models).map(brand => `${brand}: ${models[brand].length} modelos`));
+    console.log('Muestra de modelos por marca:', Object.keys(models).slice(0, 2).map(brand => ({
+      marca: brand,
+      modelos: models[brand].slice(0, 3)
+    })));
     
     return { deviceTypes, brands, models };
     
@@ -217,38 +244,94 @@ export async function fetchPartsFromSheet(): Promise<{
   partDetails: { [key: string]: { names: string[]; type: string } };
 }> {
   try {
+    console.log('Intentando cargar piezas. URL configurada:', PARTS_SHEET_URL);
+    
     if (!PARTS_SHEET_URL) {
-      console.warn('URL de Google Sheet no configurada, usando datos por defecto');
+      console.warn('URL de Google Sheet de piezas no configurada, usando datos por defecto');
       return getDefaultPartsData();
     }
 
+    console.log('Realizando fetch a:', PARTS_SHEET_URL);
     const response = await fetch(PARTS_SHEET_URL);
-    if (!response.ok) throw new Error('Error al obtener datos de piezas');
+    
+    if (!response.ok) {
+      console.error('Error en la respuesta de piezas:', response.status, response.statusText);
+      throw new Error(`Error al obtener datos de piezas: ${response.status}`);
+    }
     
     const csvText = await response.text();
+    console.log('CSV de piezas recibido, primeras 200 caracteres:', csvText.substring(0, 200));
+    
     const parts: GoogleSheetPart[] = parseCSV(csvText);
+    console.log('Piezas parseadas:', parts.length);
+    console.log('Muestra de piezas parseadas:', parts.slice(0, 3));
     
-    // Filtrar solo piezas activas de tipos válidos
-    const activeParts = parts.filter(p => 
-      p.Activo !== false && 
-      ['Interior', 'Exterior', 'Equipo'].includes(p.Tipo)
-    );
+    if (parts.length === 0) {
+      console.warn('No se encontraron piezas, usando datos por defecto');
+      return getDefaultPartsData();
+    }
     
-    // Extraer nombres de piezas únicos
-    const partNames = [...new Set(activeParts.map(p => p.Pieza))].sort();
+    // Filtrar EXACTAMENTE como especificaste:
+    // - Tipo debe ser "Interior", "Exterior" o "Equipo"  
+    // - Activo NO debe ser false
+    const activeParts = parts.filter(p => {
+      const tipoValido = ['Interior', 'Exterior', 'Equipo'].includes(p.Tipo);
+      const activoString = String(p.Activo).toLowerCase();
+      const esActivo = activoString !== 'false' && p.Activo !== false;
+      
+      const esValido = tipoValido && esActivo;
+      
+      if (!esValido) {
+        console.log('Pieza filtrada:', { 
+          Pieza: p.Pieza, 
+          Tipo: p.Tipo, 
+          Activo: p.Activo,
+          razon: !tipoValido ? 'Tipo inválido' : 'Inactiva'
+        });
+      }
+      
+      return esValido;
+    });
     
-    // Crear detalles de piezas con nombres alternativos
+    console.log('Piezas activas después del filtro:', activeParts.length);
+    console.log('Muestra de piezas activas:', activeParts.slice(0, 3));
+    
+    // Extraer nombres de piezas únicos de la columna "Pieza"
+    const partNames = [...new Set(activeParts
+      .map(p => p.Pieza)
+      .filter(p => p && p.trim())  // Filtrar valores vacíos
+    )].sort();
+    
+    console.log('Nombres de piezas encontrados:', partNames);
+    
+    // Crear detalles de piezas con nombres alternativos de "Otros Nombres"
     const partDetails: { [key: string]: { names: string[]; type: string } } = {};
     activeParts.forEach(part => {
+      if (!part.Pieza || !part.Pieza.trim()) return; // Skip si Pieza está vacía
+      
       const otherNames = part['Otros Nombres'] ? 
         part['Otros Nombres'].split(',').map(n => n.trim()).filter(n => n) : 
         [];
       
-      partDetails[part.Pieza] = {
-        names: [part.Pieza, ...otherNames],
-        type: part.Tipo
-      };
+      // Si ya existe esta pieza, combinar los otros nombres
+      if (partDetails[part.Pieza]) {
+        const existingNames = new Set(partDetails[part.Pieza].names);
+        otherNames.forEach(name => existingNames.add(name));
+        partDetails[part.Pieza].names = Array.from(existingNames);
+      } else {
+        partDetails[part.Pieza] = {
+          names: [part.Pieza, ...otherNames],
+          type: part.Tipo
+        };
+      }
     });
+    
+    console.log('Detalles de piezas creados:', Object.keys(partDetails).length);
+    console.log('Muestra de detalles:', Object.keys(partDetails).slice(0, 3).map(key => ({
+      pieza: key,
+      nombres: partDetails[key].names,
+      tipo: partDetails[key].type
+    })));
     
     return { parts: partNames, partDetails };
     
