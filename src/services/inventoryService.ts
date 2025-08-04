@@ -27,26 +27,120 @@ export function configureGoogleSheetURLs(deviceUrl: string, partsUrl: string) {
   console.log('URLs configuradas:', { DEVICE_SHEET_URL, PARTS_SHEET_URL });
 }
 
-// Función para parsear CSV
+// Función para probar las URLs de Google Sheets
+export async function testGoogleSheetURLs(deviceUrl: string, partsUrl: string): Promise<{
+  deviceUrlValid: boolean;
+  partsUrlValid: boolean;
+  deviceError?: string;
+  partsError?: string;
+}> {
+  const result = {
+    deviceUrlValid: false,
+    partsUrlValid: false,
+    deviceError: undefined as string | undefined,
+    partsError: undefined as string | undefined
+  };
+
+  // Probar URL de dispositivos
+  if (deviceUrl) {
+    try {
+      console.log('Probando URL de dispositivos:', deviceUrl);
+      const response = await fetch(deviceUrl);
+      if (response.ok) {
+        const text = await response.text();
+        if (text.length > 10) {
+          result.deviceUrlValid = true;
+          console.log('URL de dispositivos válida ✓');
+        } else {
+          result.deviceError = 'La URL devuelve contenido vacío';
+        }
+      } else {
+        result.deviceError = `Error HTTP ${response.status}: ${response.statusText}`;
+      }
+    } catch (error) {
+      result.deviceError = `Error de red: ${error}`;
+    }
+  }
+
+  // Probar URL de piezas
+  if (partsUrl) {
+    try {
+      console.log('Probando URL de piezas:', partsUrl);
+      const response = await fetch(partsUrl);
+      if (response.ok) {
+        const text = await response.text();
+        if (text.length > 10) {
+          result.partsUrlValid = true;
+          console.log('URL de piezas válida ✓');
+        } else {
+          result.partsError = 'La URL devuelve contenido vacío';
+        }
+      } else {
+        result.partsError = `Error HTTP ${response.status}: ${response.statusText}`;
+      }
+    } catch (error) {
+      result.partsError = `Error de red: ${error}`;
+    }
+  }
+
+  return result;
+}
+
+// Función para parsear CSV con mejor manejo de errores
 function parseCSV(csvText: string): any[] {
-  const lines = csvText.trim().split('\n');
-  if (lines.length < 2) return [];
-  
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-  return lines.slice(1).map(line => {
-    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-    const obj: any = {};
-    headers.forEach((header, index) => {
-      let value: any = values[index] || '';
+  try {
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) {
+      console.warn('CSV vacío o sin datos');
+      return [];
+    }
+    
+    // Manejo más robusto de CSV con comillas y comas dentro de valores
+    const parseCSVLine = (line: string): string[] => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
       
-      // Convertir valores booleanos
-      if (value.toLowerCase() === 'true') value = true;
-      else if (value.toLowerCase() === 'false') value = false;
-      
-      obj[header] = value;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    };
+    
+    const headers = parseCSVLine(lines[0]).map(h => h.replace(/"/g, ''));
+    console.log('Headers encontrados:', headers);
+    
+    const data = lines.slice(1).map(line => {
+      const values = parseCSVLine(line).map(v => v.replace(/"/g, ''));
+      const obj: any = {};
+      headers.forEach((header, index) => {
+        let value: any = values[index] || '';
+        
+        // Convertir valores booleanos
+        if (value.toLowerCase() === 'true') value = true;
+        else if (value.toLowerCase() === 'false') value = false;
+        
+        obj[header] = value;
+      });
+      return obj;
     });
-    return obj;
-  });
+    
+    console.log(`Parseados ${data.length} registros del CSV`);
+    return data;
+  } catch (error) {
+    console.error('Error al parsear CSV:', error);
+    return [];
+  }
 }
 
 // Función para obtener dispositivos desde Google Sheets
@@ -56,25 +150,43 @@ export async function fetchDevicesFromSheet(): Promise<{
   models: { [key: string]: { id: string; label: string; model: string }[] };
 }> {
   try {
+    console.log('Intentando cargar dispositivos. URL configurada:', DEVICE_SHEET_URL);
+    
     if (!DEVICE_SHEET_URL) {
       console.warn('URL de Google Sheet no configurada, usando datos por defecto');
       return getDefaultDeviceData();
     }
 
+    console.log('Realizando fetch a:', DEVICE_SHEET_URL);
     const response = await fetch(DEVICE_SHEET_URL);
-    if (!response.ok) throw new Error('Error al obtener datos de dispositivos');
+    
+    if (!response.ok) {
+      console.error('Error en la respuesta:', response.status, response.statusText);
+      throw new Error(`Error al obtener datos de dispositivos: ${response.status}`);
+    }
     
     const csvText = await response.text();
+    console.log('CSV recibido, primeras 200 caracteres:', csvText.substring(0, 200));
+    
     const devices: GoogleSheetDevice[] = parseCSV(csvText);
+    console.log('Dispositivos parseados:', devices.length);
+    
+    if (devices.length === 0) {
+      console.warn('No se encontraron dispositivos, usando datos por defecto');
+      return getDefaultDeviceData();
+    }
     
     // Filtrar solo dispositivos activos
     const activeDevices = devices.filter(d => d.Modelo_Activo !== false);
+    console.log('Dispositivos activos:', activeDevices.length);
     
     // Extraer tipos de dispositivos únicos
     const deviceTypes = [...new Set(activeDevices.map(d => d.Dispositivo))].sort();
+    console.log('Tipos de dispositivos encontrados:', deviceTypes);
     
     // Extraer marcas únicas
     const brands = [...new Set(activeDevices.map(d => d.Marca))].sort();
+    console.log('Marcas encontradas:', brands);
     
     // Organizar modelos por marca
     const models: { [key: string]: { id: string; label: string; model: string }[] } = {};
@@ -88,6 +200,8 @@ export async function fetchDevicesFromSheet(): Promise<{
         }))
         .sort((a, b) => a.label.localeCompare(b.label));
     });
+    
+    console.log('Modelos organizados por marca:', Object.keys(models).map(brand => `${brand}: ${models[brand].length} modelos`));
     
     return { deviceTypes, brands, models };
     

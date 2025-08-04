@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import Button from './ui/Button';
+import { testGoogleSheetURLs } from '../services/inventoryService';
 
 interface DataSourcePanelProps {
   sheetUrl: string;
@@ -27,6 +28,8 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [localUrl, setLocalUrl] = useState(sheetUrl);
   const [localInventoryUrls, setLocalInventoryUrls] = useState(inventoryUrls);
+  const [testResults, setTestResults] = useState<{ deviceUrlValid: boolean; partsUrlValid: boolean; deviceError?: string; partsError?: string } | null>(null);
+  const [testing, setTesting] = useState(false);
 
   const handleSave = () => {
     setSheetUrl(localUrl);
@@ -35,6 +38,20 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({
   const handleInventorySave = () => {
     if (onInventoryUrlsChange) {
       onInventoryUrlsChange(localInventoryUrls);
+    }
+  };
+
+  const handleTestUrls = async () => {
+    if (!localInventoryUrls.deviceUrl && !localInventoryUrls.partsUrl) return;
+    
+    setTesting(true);
+    try {
+      const results = await testGoogleSheetURLs(localInventoryUrls.deviceUrl, localInventoryUrls.partsUrl);
+      setTestResults(results);
+    } catch (error) {
+      console.error('Error probando URLs:', error);
+    } finally {
+      setTesting(false);
     }
   };
   
@@ -112,11 +129,38 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({
                     />
                   </div>
                   
-                  <div className="flex justify-end">
+                  <div className="flex justify-between items-center">
+                    <Button 
+                      onClick={handleTestUrls} 
+                      variant="secondary" 
+                      disabled={testing || (!localInventoryUrls.deviceUrl && !localInventoryUrls.partsUrl)}
+                    >
+                      {testing ? (
+                        <><i className="fas fa-spinner fa-spin mr-2"></i>Probando...</>
+                      ) : (
+                        <><i className="fas fa-check-circle mr-2"></i>Probar URLs</>
+                      )}
+                    </Button>
                     <Button onClick={handleInventorySave} variant="primary">
                       <i className="fas fa-save mr-2"></i>Actualizar Inventario
                     </Button>
                   </div>
+                  
+                  {testResults && (
+                    <div className="mt-4 p-3 bg-gray-50 rounded-md">
+                      <h5 className="font-medium text-gray-700 mb-2">Resultados de Prueba:</h5>
+                      <div className="space-y-2 text-sm">
+                        <div className={`flex items-center ${testResults.deviceUrlValid ? 'text-green-600' : 'text-red-600'}`}>
+                          <i className={`fas ${testResults.deviceUrlValid ? 'fa-check-circle' : 'fa-times-circle'} mr-2`}></i>
+                          <span>URL Dispositivos: {testResults.deviceUrlValid ? 'Válida' : testResults.deviceError}</span>
+                        </div>
+                        <div className={`flex items-center ${testResults.partsUrlValid ? 'text-green-600' : 'text-red-600'}`}>
+                          <i className={`fas ${testResults.partsUrlValid ? 'fa-check-circle' : 'fa-times-circle'} mr-2`}></i>
+                          <span>URL Piezas: {testResults.partsUrlValid ? 'Válida' : testResults.partsError}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
