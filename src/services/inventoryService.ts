@@ -1,12 +1,14 @@
 // Servicio para cargar datos dinámicos de inventario desde Google Sheets
 
 interface GoogleSheetDevice {
-  Dispositivo: string;
-  Marca: string;
-  Modelo: string;
-  Etiqueta: string;
   ID_Modelo: string;
+  Dispositivo: string;
+  Marca_Modelo: string;  
+  Marca: string;         // ESTA es la columna correcta para Marca
+  Modelo: string;
+  Etiqueta: string;      // ESTA es la columna correcta para Modelo (display)
   Modelo_Activo: boolean | string;  // Puede venir como string del CSV
+  'Marca Activa': boolean | string;
 }
 
 interface GoogleSheetPart {
@@ -120,7 +122,7 @@ function parseCSV(csvText: string): any[] {
     const headers = parseCSVLine(lines[0]).map(h => h.replace(/"/g, ''));
     console.log('Headers encontrados:', headers);
     
-    const data = lines.slice(1).map(line => {
+    const data = lines.slice(1).map((line, lineIndex) => {
       const values = parseCSVLine(line).map(v => v.replace(/"/g, ''));
       const obj: any = {};
       headers.forEach((header, index) => {
@@ -132,10 +134,26 @@ function parseCSV(csvText: string): any[] {
         
         obj[header] = value;
       });
+      
+      // Log detallado de los primeros 5 registros para debugging
+      if (lineIndex < 5) {
+        console.log(`Registro ${lineIndex + 1}:`, {
+          raw_values: values,
+          mapped_object: obj,
+          headers_count: headers.length,
+          values_count: values.length
+        });
+      }
+      
       return obj;
     });
     
     console.log(`Parseados ${data.length} registros del CSV`);
+    console.log('Headers del CSV:', headers);
+    console.log('TOTAL HEADERS:', headers.length);
+    console.log('PRIMEROS 10 HEADERS:', headers.slice(0, 10));
+    console.log('HEADERS COMPLETOS:', headers);
+    console.log('Muestra de datos mapeados:', data.slice(0, 3));
     return data;
   } catch (error) {
     console.error('Error al parsear CSV:', error);
@@ -177,16 +195,46 @@ export async function fetchDevicesFromSheet(): Promise<{
       return getDefaultDeviceData();
     }
     
+    // Verificar que las columnas requeridas existen
+    const firstDevice = devices[0];
+    const requiredColumns = ['Dispositivo', 'Marca', 'Etiqueta', 'Modelo_Activo'];
+    const missingColumns = requiredColumns.filter(col => !(col in firstDevice));
+    
+    if (missingColumns.length > 0) {
+      console.error('Columnas faltantes en el CSV:', missingColumns);
+      console.error('Columnas disponibles:', Object.keys(firstDevice));
+      console.warn('Usando datos por defecto debido a columnas faltantes');
+      return getDefaultDeviceData();
+    }
+    
+    console.log('✓ Todas las columnas requeridas están presentes:', requiredColumns);
+    
     // Filtrar EXACTAMENTE como especificaste:
     // - Modelo_Activo NO debe ser false (puede ser true, "true", o cualquier valor que no sea false)
-    const activeDevices = devices.filter(d => {
+    const activeDevices = devices.filter((d, index) => {
       const modeloActivo = String(d.Modelo_Activo).toLowerCase();
       const isActive = modeloActivo !== 'false' && d.Modelo_Activo !== false;
+      
+      // Log detallado para los primeros 10 registros
+      if (index < 10) {
+        console.log(`Dispositivo ${index + 1}:`, {
+          Dispositivo: `"${d.Dispositivo}"`,
+          Marca: `"${d.Marca}"`,           // Columna correcta para Marca
+          Marca_Modelo: `"${d.Marca_Modelo}"`,
+          Modelo: `"${d.Modelo}"`,
+          Etiqueta: `"${d.Etiqueta}"`,    // Columna correcta para display del Modelo
+          ID_Modelo: `"${d.ID_Modelo}"`,
+          Modelo_Activo: `"${d.Modelo_Activo}"`,
+          'Marca Activa': `"${d['Marca Activa']}"`,
+          isActive: isActive,
+          all_properties: Object.keys(d).slice(0, 10)
+        });
+      }
+      
       if (!isActive) {
-        console.log('Dispositivo filtrado (inactivo):', { 
-          Marca: d.Marca, 
-          Modelo: d.Modelo, 
-          Etiqueta: d.Etiqueta, 
+        console.log('❌ Dispositivo filtrado (inactivo):', { 
+          Marca: d.Marca,           // Mostrar la columna correcta
+          Etiqueta: d.Etiqueta,     // Mostrar la columna correcta
           Modelo_Activo: d.Modelo_Activo 
         });
       }
@@ -198,30 +246,63 @@ export async function fetchDevicesFromSheet(): Promise<{
     
     // Extraer tipos de dispositivos únicos de la columna "Dispositivo"
     const deviceTypes = [...new Set(activeDevices
-      .map(d => d.Dispositivo)
-      .filter(d => d && d.trim())  // Filtrar valores vacíos
+      .map(d => {
+        const dispositivo = d.Dispositivo;
+        if (typeof dispositivo !== 'string' || !dispositivo.trim()) {
+          console.warn('Valor inválido en columna Dispositivo:', dispositivo, 'en registro:', d);
+          return null;
+        }
+        return dispositivo.trim();
+      })
+      .filter(d => d !== null)  // Filtrar valores nulos
     )].sort();
-    console.log('Tipos de dispositivos encontrados:', deviceTypes);
     
-    // Extraer marcas únicas de la columna "Marca"
+    console.log('✓ Tipos de dispositivos encontrados en columna "Dispositivo":', deviceTypes);
+    
+    // Extraer marcas únicas de la columna "Marca" (NO Marca_Modelo)
     const brands = [...new Set(activeDevices
-      .map(d => d.Marca)
-      .filter(m => m && m.trim())  // Filtrar valores vacíos
+      .map(d => {
+        const marca = d.Marca;  // Usar columna Marca como especificaste
+        if (typeof marca !== 'string' || !marca.trim()) {
+          console.warn('Valor inválido en columna Marca:', marca, 'en registro:', d);
+          return null;
+        }
+        return marca.trim();
+      })
+      .filter(m => m !== null)  // Filtrar valores nulos
     )].sort();
-    console.log('Marcas encontradas:', brands);
     
-    // Organizar modelos por marca usando la columna "Etiqueta" para el display
+    console.log('✓ Marcas encontradas en columna "Marca":', brands);
+    
+    // Organizar modelos por marca usando la columna "Etiqueta" para el display (como especificaste)
     const models: { [key: string]: { id: string; label: string; model: string }[] } = {};
     brands.forEach(brand => {
-      models[brand] = activeDevices
-        .filter(d => d.Marca === brand)
-        .filter(d => d.Etiqueta && d.Etiqueta.trim()) // Asegurar que Etiqueta no esté vacía
-        .map(d => ({
-          id: d.ID_Modelo || `${d.Marca}_${d.Modelo}`, // Fallback si ID_Modelo está vacío
-          label: d.Etiqueta,  // USAR ETIQUETA como especificaste
-          model: d.Modelo     // Mantener Modelo para referencia
-        }))
+      console.log(`\n🔍 Procesando marca: "${brand}"`);
+      
+      const devicesForBrand = activeDevices.filter(d => d.Marca === brand);  // Filtrar por columna Marca
+      console.log(`   Dispositivos encontrados para "${brand}":`, devicesForBrand.length);
+      
+      models[brand] = devicesForBrand
+        .filter(d => {
+          const etiqueta = d.Etiqueta;  // Usar columna Etiqueta como especificaste
+          const isValid = etiqueta && typeof etiqueta === 'string' && etiqueta.trim();
+          if (!isValid) {
+            console.warn(`   ❌ Etiqueta inválida para ${brand}:`, etiqueta, 'en registro:', d);
+          }
+          return isValid;
+        })
+        .map(d => {
+          const modelData = {
+            id: d.ID_Modelo || `${d.Marca}_${d.Etiqueta}`, // Usar Marca y Etiqueta
+            label: d.Etiqueta.trim(),  // USAR ETIQUETA como especificaste para el display
+            model: d.Modelo || d.Etiqueta.trim()   // Fallback al Modelo o Etiqueta
+          };
+          console.log(`   ✓ Modelo agregado para ${brand}:`, modelData);
+          return modelData;
+        })
         .sort((a, b) => a.label.localeCompare(b.label));
+        
+      console.log(`   Total modelos para "${brand}":`, models[brand].length);
     });
     
     console.log('Modelos organizados por marca:', Object.keys(models).map(brand => `${brand}: ${models[brand].length} modelos`));
