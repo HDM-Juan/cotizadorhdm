@@ -468,18 +468,22 @@ const App: React.FC = () => {
     
     // Handle inventory URLs update
     const handleInventoryUrlsChange = useCallback(async (urls: { deviceUrl: string; partsUrl: string }) => {
+        console.log('🔄 handleInventoryUrlsChange llamado con URLs:', urls);
         setInventoryUrls(urls);
         
         // Configure the URLs in the service
+        console.log('📝 Configurando URLs en el servicio...');
         configureGoogleSheetURLs(urls.deviceUrl, urls.partsUrl);
         
         // Reload data with new URLs
         try {
+            console.log('🔄 Iniciando recarga de datos desde Google Sheets...');
             const [devicesData, partsData] = await Promise.all([
                 fetchDevicesFromSheet(),
                 fetchPartsFromSheet()
             ]);
             
+            console.log('✅ Datos recibidos:', { devicesData, partsData });
             setDynamicDeviceTypes(devicesData.deviceTypes);
             setDynamicBrands(devicesData.brands);
             setDynamicModels(devicesData.models);

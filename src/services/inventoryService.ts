@@ -102,20 +102,43 @@ function parseCSV(csvText: string): any[] {
       const result = [];
       let current = '';
       let inQuotes = false;
+      let i = 0;
       
-      for (let i = 0; i < line.length; i++) {
+      while (i < line.length) {
         const char = line[i];
+        const nextChar = line[i + 1];
         
         if (char === '"') {
+          // Manejar comillas dobles escapadas ""
+          if (inQuotes && nextChar === '"') {
+            current += '"';
+            i += 2; // Saltar ambas comillas
+            continue;
+          }
+          // Alternar estado de comillas
           inQuotes = !inQuotes;
         } else if (char === ',' && !inQuotes) {
+          // Nueva columna solo si no estamos dentro de comillas
           result.push(current.trim());
           current = '';
         } else {
           current += char;
         }
+        i++;
       }
+      
+      // Agregar el último valor
       result.push(current.trim());
+      
+      // Log para debugging del parsing
+      if (result.length > 50) { // Solo log si hay muchas columnas (probable problema)
+        console.warn('📊 Línea con muchas columnas detectada:', {
+          total_columns: result.length,
+          first_10: result.slice(0, 10),
+          line_preview: line.substring(0, 200) + '...'
+        });
+      }
+      
       return result;
     };
     
@@ -125,23 +148,51 @@ function parseCSV(csvText: string): any[] {
     const data = lines.slice(1).map((line, lineIndex) => {
       const values = parseCSVLine(line).map(v => v.replace(/"/g, ''));
       const obj: any = {};
+      
+      // VALIDACIÓN CRÍTICA: Verificar que el número de valores coincida con headers
+      if (values.length !== headers.length) {
+        console.warn(`⚠️ DESALINEAMIENTO en línea ${lineIndex + 2}:`, {
+          expected_columns: headers.length,
+          actual_values: values.length,
+          headers: headers,
+          values: values,
+          line_content: line.substring(0, 100) + '...'
+        });
+        
+        // Rellenar valores faltantes con cadenas vacías
+        while (values.length < headers.length) {
+          values.push('');
+        }
+        // Truncar valores extras
+        if (values.length > headers.length) {
+          values.splice(headers.length);
+        }
+      }
+      
       headers.forEach((header, index) => {
         let value: any = values[index] || '';
         
         // Convertir valores booleanos
-        if (value.toLowerCase() === 'true') value = true;
-        else if (value.toLowerCase() === 'false') value = false;
+        if (typeof value === 'string') {
+          if (value.toLowerCase() === 'true') value = true;
+          else if (value.toLowerCase() === 'false') value = false;
+        }
         
         obj[header] = value;
       });
       
       // Log detallado de los primeros 5 registros para debugging
       if (lineIndex < 5) {
-        console.log(`Registro ${lineIndex + 1}:`, {
-          raw_values: values,
-          mapped_object: obj,
+        console.log(`✅ Registro ${lineIndex + 1} VALIDADO:`, {
           headers_count: headers.length,
-          values_count: values.length
+          values_count: values.length,
+          mapping_sample: {
+            Dispositivo: `"${obj.Dispositivo}"`,
+            Marca: `"${obj.Marca}"`,
+            Etiqueta: `"${obj.Etiqueta}"`,
+            Modelo_Activo: `"${obj.Modelo_Activo}"`
+          },
+          all_mapped_keys: Object.keys(obj).slice(0, 10)
         });
       }
       
@@ -201,13 +252,43 @@ export async function fetchDevicesFromSheet(): Promise<{
     const missingColumns = requiredColumns.filter(col => !(col in firstDevice));
     
     if (missingColumns.length > 0) {
-      console.error('Columnas faltantes en el CSV:', missingColumns);
-      console.error('Columnas disponibles:', Object.keys(firstDevice));
+      console.error('❌ Columnas faltantes en el CSV:', missingColumns);
+      console.error('📋 Columnas disponibles:', Object.keys(firstDevice));
+      
+      // Buscar columnas similares
+      const availableColumns = Object.keys(firstDevice);
+      missingColumns.forEach(missing => {
+        const similar = availableColumns.filter(col => 
+          col.toLowerCase().includes(missing.toLowerCase()) || 
+          missing.toLowerCase().includes(col.toLowerCase())
+        );
+        if (similar.length > 0) {
+          console.warn(`🔍 Columnas similares a "${missing}":`, similar);
+        }
+      });
+      
       console.warn('Usando datos por defecto debido a columnas faltantes');
       return getDefaultDeviceData();
     }
     
-    console.log('✓ Todas las columnas requeridas están presentes:', requiredColumns);
+    // VALIDACIÓN CRÍTICA: Verificar que los datos están en las columnas correctas
+    console.log('🔍 VALIDANDO MAPEO DE COLUMNAS en los primeros 5 registros:');
+    devices.slice(0, 5).forEach((device, index) => {
+      console.log(`📝 Dispositivo ${index + 1}:`, {
+        'Columna_Dispositivo': `"${device.Dispositivo}" (tipo: ${typeof device.Dispositivo})`,
+        'Columna_Marca': `"${device.Marca}" (tipo: ${typeof device.Marca})`,
+        'Columna_Etiqueta': `"${device.Etiqueta}" (tipo: ${typeof device.Etiqueta})`,
+        'Columna_Modelo_Activo': `"${device.Modelo_Activo}" (tipo: ${typeof device.Modelo_Activo})`,
+        'ID_Modelo': `"${device.ID_Modelo}"`,
+        'Verificación': {
+          dispositivo_valido: typeof device.Dispositivo === 'string' && device.Dispositivo.length > 0,
+          marca_valida: typeof device.Marca === 'string' && device.Marca.length > 0,
+          etiqueta_valida: typeof device.Etiqueta === 'string' && device.Etiqueta.length > 0
+        }
+      });
+    });
+    
+    console.log('✅ Todas las columnas requeridas están presentes:', requiredColumns);
     
     // Filtrar EXACTAMENTE como especificaste:
     // - Modelo_Activo NO debe ser false (puede ser true, "true", o cualquier valor que no sea false)
@@ -248,31 +329,71 @@ export async function fetchDevicesFromSheet(): Promise<{
     const deviceTypes = [...new Set(activeDevices
       .map(d => {
         const dispositivo = d.Dispositivo;
-        if (typeof dispositivo !== 'string' || !dispositivo.trim()) {
-          console.warn('Valor inválido en columna Dispositivo:', dispositivo, 'en registro:', d);
+        
+        // VALIDACIÓN ESTRICTA: Verificar que no sea un valor de otra columna
+        if (typeof dispositivo !== 'string') {
+          console.warn('❌ Valor no-string en columna Dispositivo:', dispositivo, 'en registro:', d.ID_Modelo);
           return null;
         }
-        return dispositivo.trim();
+        
+        if (!dispositivo.trim()) {
+          console.warn('❌ Valor vacío en columna Dispositivo para registro:', d.ID_Modelo);
+          return null;
+        }
+        
+        const dispositivoTrimmed = dispositivo.trim();
+        
+        // Detectar si parece ser un valor de otra columna
+        if (dispositivoTrimmed.match(/^[A-Z0-9_-]+$/i) && dispositivoTrimmed.length < 4) {
+          console.warn('⚠️ Posible valor mezclado en columna Dispositivo (parece código):', dispositivoTrimmed, 'en registro:', d.ID_Modelo);
+        }
+        
+        return dispositivoTrimmed;
       })
       .filter(d => d !== null)  // Filtrar valores nulos
     )].sort();
     
-    console.log('✓ Tipos de dispositivos encontrados en columna "Dispositivo":', deviceTypes);
+    console.log('✅ Tipos de dispositivos en columna "Dispositivo":', deviceTypes.slice(0, 10), `(total: ${deviceTypes.length})`);
     
     // Extraer marcas únicas de la columna "Marca" (NO Marca_Modelo)
     const brands = [...new Set(activeDevices
       .map(d => {
         const marca = d.Marca;  // Usar columna Marca como especificaste
-        if (typeof marca !== 'string' || !marca.trim()) {
-          console.warn('Valor inválido en columna Marca:', marca, 'en registro:', d);
+        
+        // VALIDACIÓN ESTRICTA: Verificar que no sea un valor de otra columna
+        if (typeof marca !== 'string') {
+          console.warn('❌ Valor no-string en columna Marca:', marca, 'en registro:', d.ID_Modelo);
           return null;
         }
-        return marca.trim();
+        
+        if (!marca.trim()) {
+          console.warn('❌ Valor vacío en columna Marca para registro:', d.ID_Modelo);
+          return null;
+        }
+        
+        // Detectar si parece ser un valor de otra columna (por ejemplo, un ID o código)
+        const marcaTrimmed = marca.trim();
+        if (marcaTrimmed.match(/^[A-Z0-9_-]+$/i) && marcaTrimmed.length < 3) {
+          console.warn('⚠️ Posible valor mezclado en columna Marca (parece código):', marcaTrimmed, 'en registro:', d.ID_Modelo);
+        }
+        
+        return marcaTrimmed;
       })
       .filter(m => m !== null)  // Filtrar valores nulos
     )].sort();
     
-    console.log('✓ Marcas encontradas en columna "Marca":', brands);
+    console.log('✅ Marcas encontradas en columna "Marca":', brands.slice(0, 10), `(total: ${brands.length})`);
+    
+    // VERIFICACIÓN ADICIONAL: Comprobar si las marcas parecen correctas
+    const suspicious = brands.filter(brand => 
+      brand.length < 3 || 
+      /^[0-9]+$/.test(brand) || 
+      brand.includes('_') || 
+      brand.includes('-')
+    );
+    if (suspicious.length > 0) {
+      console.warn('⚠️ Marcas sospechosas detectadas (pueden ser datos mezclados):', suspicious);
+    }
     
     // Organizar modelos por marca usando la columna "Etiqueta" para el display (como especificaste)
     const models: { [key: string]: { id: string; label: string; model: string }[] } = {};
