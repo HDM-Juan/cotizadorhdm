@@ -1,5 +1,5 @@
 [build]
-  # Directorio donde se encuentran los archivos construidos
+  # Directorio donde se encuentran los archivos construidos  
   publish = "dist"
   
   # Comando para construir la aplicación
