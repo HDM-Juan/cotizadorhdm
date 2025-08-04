@@ -31,9 +31,9 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({ sheetUrl, setSheetUrl
                 <p>Conecta una hoja de Google Sheets para cargar dinámicamente tu lista de proveedores locales.</p>
                 <ol>
                     <li>Crea una hoja de Google con 10 columnas, <strong>en este orden exacto</strong>: <code>dispositivo, marca, modelo, pieza, variante1, variante2, llave, nombre_proveedor, tiempo_entrega, precio</code>.</li>
-                    <li>Ve a <strong>Archivo > Compartir > Publicar en la web</strong>.</li>
-                    <li>Selecciona la hoja correcta y elige <strong>"Valores separados por comas (.csv)"</strong>.</li>
-                    <li>Haz clic en "Publicar", copia la URL generada y pégala abajo.</li>
+                    <li>Ve a <strong>Archivo &gt; Compartir &gt; Publicar en la web</strong>.</li>
+                    <li>Selecciona la hoja correcta y elige <strong>&quot;Valores separados por comas (.csv)&quot;</strong>.</li>
+                    <li>Haz clic en &quot;Publicar&quot;, copia la URL generada y pégala abajo.</li>
                 </ol>
             </div>
             

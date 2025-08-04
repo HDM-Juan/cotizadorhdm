@@ -170,7 +170,7 @@ const AnalysisChart: React.FC<AnalysisChartProps> = ({ partResults, devicePrices
                     
                     {/* Historical Data Points */}
                     <Scatter name="Aceptados Históricos" data={historicalPoints.accepted} fill="#16a34a" shape={<StarShape />} />
-                    <Scatter name="Rechazados Relevantes" data={historicalPoints.rejected} fill="#ef4444" shape="dot" />
+                    <Scatter name="Rechazados Relevantes" data={historicalPoints.rejected} fill="#ef4444" shape="circle" />
 
                     {/* Percentage Labels attached to invisible reference lines for accurate positioning */}
                     <ReferenceLine y={usedPrices.average} stroke="transparent">

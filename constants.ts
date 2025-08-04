@@ -1,4 +1,3 @@
-
 import { SearchQuery, GeminiResponse, HistoricalData } from './types';
 
 export const DEVICE_TYPES = ['Celular', 'Tablet', 'Smartwatch'];

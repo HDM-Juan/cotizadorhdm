@@ -1,4 +1,3 @@
-
 export interface SearchQuery {
   deviceType: string;
   brand: string;

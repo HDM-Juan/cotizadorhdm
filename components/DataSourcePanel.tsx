@@ -62,5 +62,3 @@ const DataSourcePanel: React.FC<DataSourcePanelProps> = ({ sheetUrl, setSheetUrl
     </div>
   );
 };
-
-export default DataSourcePanel;
